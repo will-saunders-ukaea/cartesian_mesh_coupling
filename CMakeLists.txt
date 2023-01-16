@@ -46,7 +46,7 @@ endif()
 set(CMAKE_CXX_FLAGS_RELWITHDEBINFO "-g -DNDEBUG -O3")
 message(STATUS ${CMAKE_CXX_FLAGS_RELWITHDEBINFO})
 
-set(EXECUTABLE duplicated_domain)
+set(EXECUTABLE particle_simulation)
 set(EXECUTABLE_SOURCE main.cpp)
 
 find_package(MPI REQUIRED)
