@@ -34,6 +34,19 @@ int main(int argc, char **argv) {
       particle_simulation->write_particle_trajectory();
 
       double *mesh_values = particle_simulation->deposit_onto_mesh();
+
+      const int local_cell_count = particle_simulation->get_cell_count();
+      int global_tuple_index[2];
+      for (int linear_cell_index = 0; linear_cell_index < local_cell_count;
+           linear_cell_index++) {
+
+        particle_simulation->map_local_linear_to_global_tuple(
+            linear_cell_index, global_tuple_index);
+        nprint("local linear cell index:", linear_cell_index,
+               "global tuple index: (", global_tuple_index[0], ",",
+               global_tuple_index[1],
+               " ) quantity:", mesh_values[linear_cell_index]);
+      }
     }
 
     particle_simulation->free();

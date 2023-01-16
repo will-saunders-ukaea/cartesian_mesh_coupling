@@ -154,6 +154,25 @@ public:
     this->particle_group->cell_move();
   }
 
+  inline void map_local_linear_to_global_tuple(const int linear_index,
+                                               int *tuple_index) {
+    NESOASSERT((linear_index >= 0) && (linear_index < this->get_cell_count()),
+               "Invalid linear index. Should be in [0, get_cell_count()-1].");
+    NESOASSERT(this->ndim == 2,
+               "This conversion was written for 2 dimensions.");
+
+    // linear_index = index_x + stride_x * index_y
+    const int stride_x = this->mesh->cell_counts_local[0];
+
+    // compute the local tuple index
+    tuple_index[0] = linear_index % stride_x;
+    tuple_index[1] = (linear_index - tuple_index[0]) / stride_x;
+
+    // convert to a global tuple index
+    tuple_index[0] += this->mesh->cell_starts[0];
+    tuple_index[1] += this->mesh->cell_starts[1];
+  }
+
   inline double *deposit_onto_mesh() {
 
     double *k_mesh_values = this->dh_mesh_values->d_buffer.ptr;
