@@ -47,6 +47,8 @@ private:
     parallel_advection_initialisation(this->particle_group);
   }
 
+  std::shared_ptr<BufferDeviceHost<double>> dh_mesh_values;
+
 public:
   const int num_particles;
   const int ndim = 2;
@@ -89,6 +91,9 @@ public:
         this->sycl_target, this->mesh, this->particle_group->position_dat);
 
     this->add_particles();
+
+    this->dh_mesh_values = std::make_shared<BufferDeviceHost<double>>(
+        this->sycl_target, this->domain->mesh->get_cell_count());
   }
 
   inline void write_particle_trajectory() {
@@ -100,6 +105,8 @@ public:
     }
     this->h5part->write();
   }
+
+  inline int get_cell_count() { return this->domain->mesh->get_cell_count(); }
 
   inline void step() {
     auto P = (*this->particle_group)[Sym<REAL>("P")];
@@ -129,6 +136,56 @@ public:
 
     this->boundary_conditions->execute();
     this->particle_group->hybrid_move();
+  }
+
+  inline double *deposit_onto_mesh() {
+
+    double *k_mesh_values = this->dh_mesh_values->d_buffer.ptr;
+    const int k_cell_count = this->get_cell_count();
+
+    // zero the values in the array that represents the mesh values
+    this->sycl_target->queue
+        .submit([&](sycl::handler &cgh) {
+          cgh.parallel_for<>(
+              sycl::range<1>(k_cell_count),
+              [=](sycl::id<1> idx) { k_mesh_values[idx] = 0.0; });
+        })
+        .wait_and_throw();
+
+    auto Q = (*this->particle_group)[Sym<REAL>("Q")];
+    auto k_Q = Q->cell_dat.device_ptr();
+
+    const auto pl_iter_range = Q->get_particle_loop_iter_range();
+    const auto pl_stride = Q->get_particle_loop_cell_stride();
+    const auto pl_npart_cell = Q->get_particle_loop_npart_cell();
+
+    // increment the values on the mesh from the particles atomically
+    this->sycl_target->queue
+        .submit([&](sycl::handler &cgh) {
+          cgh.parallel_for<>(
+              sycl::range<1>(pl_iter_range), [=](sycl::id<1> idx) {
+                NESO_PARTICLES_KERNEL_START
+                const INT cellx = NESO_PARTICLES_KERNEL_CELL;
+                const INT layerx = NESO_PARTICLES_KERNEL_LAYER;
+
+                // read the value from the particle
+                const REAL particle_quantity = k_Q[cellx][0][layerx];
+
+                // atomically increment the mesh value
+                sycl::atomic_ref<double, sycl::memory_order::relaxed,
+                                 sycl::memory_scope::device>
+                    mesh_value_reference(k_mesh_values[cellx]);
+                mesh_value_reference.fetch_add(particle_quantity);
+
+                NESO_PARTICLES_KERNEL_END
+              });
+        })
+        .wait_and_throw();
+
+    // copy the computed mesh values to the host
+    this->dh_mesh_values->device_to_host();
+    // return the pointer to the host values
+    return this->dh_mesh_values->h_buffer.ptr;
   }
 
   inline void free() {
