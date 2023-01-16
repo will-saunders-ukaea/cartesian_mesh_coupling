@@ -19,12 +19,18 @@ int main(int argc, char **argv) {
     std::string argv2 = std::string(argv[2]);
     const int N_steps = std::stoi(argv2);
 
-    auto particle_simulation =
-        std::make_shared<ParticleSimulation>(N_particles, MPI_COMM_WORLD);
+    const int nx = 8;
+    const int ny = nx;
+    const double cell_extent = 1.0 / ((double)nx);
+    const int subdivision_order = 0;
+
+    auto particle_simulation = std::make_shared<ParticleSimulation>(
+        N_particles, nx, ny, cell_extent, subdivision_order, MPI_COMM_WORLD);
 
     for (int stepx = 0; stepx < N_steps; stepx++) {
 
       particle_simulation->step();
+
       particle_simulation->write_particle_trajectory();
 
       double *mesh_values = particle_simulation->deposit_onto_mesh();

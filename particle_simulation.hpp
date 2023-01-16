@@ -52,31 +52,41 @@ private:
 public:
   const int num_particles;
   const int ndim = 2;
-  const double cell_extent = 1.0;
-  const int subdivision_order = 0;
+  const double cell_extent;
+  const int subdivision_order;
   const double dt;
+  const int nx;
+  const int ny;
 
   std::shared_ptr<CartesianHMesh> mesh;
   SYCLTargetSharedPtr sycl_target;
+  std::shared_ptr<CartesianHMeshLocalMapperT> global_cell_mapper;
+  std::shared_ptr<CartesianCellBin> local_cell_mapper;
   DomainSharedPtr domain;
   ParticleGroupSharedPtr particle_group;
   std::shared_ptr<CartesianPeriodic> boundary_conditions;
   std::shared_ptr<H5Part> h5part;
 
-  ParticleSimulation(const int num_particles, MPI_Comm comm)
-      : num_particles(num_particles), h5part(NULL), dt(0.01)
+  ParticleSimulation(const int num_particles, const int nx, const int ny,
+                     const double cell_extent, const int subdivision_order,
+                     MPI_Comm comm)
+      : num_particles(num_particles), h5part(NULL), dt(0.01), nx(nx), ny(ny),
+        cell_extent(cell_extent), subdivision_order(subdivision_order)
 
   {
     std::vector<int> dims(ndim);
-    dims[0] = 8;
-    dims[1] = 8;
+    dims[0] = nx;
+    dims[1] = ny;
 
     this->mesh = std::make_shared<CartesianHMesh>(comm, ndim, dims, cell_extent,
                                                   subdivision_order);
 
     this->sycl_target = std::make_shared<SYCLTarget>(0, mesh->get_comm());
 
-    this->domain = std::make_shared<Domain>(mesh);
+    this->global_cell_mapper =
+        CartesianHMeshLocalMapper(this->sycl_target, this->mesh);
+    this->domain =
+        std::make_shared<Domain>(this->mesh, this->global_cell_mapper);
 
     ParticleSpec particle_spec{ParticleProp(Sym<REAL>("P"), ndim, true),
                                ParticleProp(Sym<REAL>("V"), ndim),
@@ -86,6 +96,10 @@ public:
 
     this->particle_group = std::make_shared<ParticleGroup>(
         this->domain, particle_spec, this->sycl_target);
+
+    this->local_cell_mapper = std::make_shared<CartesianCellBin>(
+        this->sycl_target, this->mesh, this->particle_group->position_dat,
+        this->particle_group->cell_id_dat);
 
     this->boundary_conditions = std::make_shared<CartesianPeriodic>(
         this->sycl_target, this->mesh, this->particle_group->position_dat);
@@ -101,7 +115,7 @@ public:
       this->h5part = std::make_shared<H5Part>(
           "particle_tracjectory.h5part", this->particle_group, Sym<REAL>("P"),
           Sym<INT>("NESO_MPI_RANK"), Sym<INT>("ID"), Sym<REAL>("Q"),
-          Sym<REAL>("V"));
+          Sym<REAL>("V"), Sym<INT>("CELL_ID"));
     }
     this->h5part->write();
   }
@@ -136,6 +150,8 @@ public:
 
     this->boundary_conditions->execute();
     this->particle_group->hybrid_move();
+    this->local_cell_mapper->execute();
+    this->particle_group->cell_move();
   }
 
   inline double *deposit_onto_mesh() {
