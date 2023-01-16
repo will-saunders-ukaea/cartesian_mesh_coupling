@@ -1,5 +1,4 @@
-This is a proof of concept implementation for a use case that executes a copy of a particle simulation on each MPI rank.
-
+This simulation creates a Cartesian mesh over which N particles are transported with periodic boundary conditions. Particles carry a quantity Q which can be deposited into a single node in each mesh cell.
 
 ## Dependencies
 
